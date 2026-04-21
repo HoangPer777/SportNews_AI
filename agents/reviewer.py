@@ -13,6 +13,12 @@ from models.schemas import ReportState
 logger = logging.getLogger(__name__)
 
 
+_GENERIC_KEYWORDS = {
+    "thể thao", "bóng đá", "tin tức", "sport", "news",
+    "đội bóng", "cầu thủ", "trận đấu",
+}
+
+
 def _build_prompt(state: ReportState) -> str:
     """Build the LLM prompt to validate the report against quality criteria."""
     report = state.get("report")
@@ -26,6 +32,27 @@ def _build_prompt(state: ReportState) -> str:
     executive_summary = report.executive_summary or ""
     trending_keywords = report.trending_keywords or []
     highlighted_news = report.highlighted_news or []
+
+    # Criterion B: collect expected sources from ranked_articles
+    ranked_articles = state.get("ranked_articles") or []
+    expected_sources = sorted({a.source for a in ranked_articles if a.source})
+    expected_sources_text = (
+        ", ".join(expected_sources) if expected_sources else "(none)"
+    )
+
+    # Criterion A: extract first and last paragraph for the LLM to compare
+    paragraphs = [p.strip() for p in executive_summary.split("\n\n") if p.strip()]
+    para1 = paragraphs[0] if len(paragraphs) >= 1 else ""
+    para4 = paragraphs[3] if len(paragraphs) >= 4 else ""
+
+    # Criterion C: pre-check generic keywords (deterministic, no LLM needed)
+    generic_hits = [kw for kw in trending_keywords if kw.lower() in _GENERIC_KEYWORDS]
+    generic_warning = (
+        f"WARNING: trending_keywords contains overly generic terms: {generic_hits}. "
+        "This MUST be rejected.\n"
+        if generic_hits
+        else ""
+    )
 
     news_text = ""
     for i, item in enumerate(highlighted_news, 1):
@@ -46,8 +73,18 @@ def _build_prompt(state: ReportState) -> str:
         "4. All three sections are present and substantive.\n"
         "5. ALL content MUST be in VIETNAMESE (proper nouns like team/player names can stay in original language).\n"
         "6. Consistency: executive_summary must mention events from highlighted_news and vice versa.\n"
-        "7. Depth: executive_summary must analyze trends, not just list events. Each summary in highlighted_news must have at least 2 sentences.\n\n"
-        "--- REPORT ---\n"
+        "7. Depth: executive_summary must analyze trends, not just list events. Each summary in highlighted_news must have at least 2 sentences.\n"
+        "8. No repetition (Criterion A): Paragraph 1 and Paragraph 4 of executive_summary must NOT be near-identical "
+        "in theme or opening phrase. If they restate the same idea, reject.\n"
+        f"   Paragraph 1: \"{para1}\"\n"
+        f"   Paragraph 4: \"{para4}\"\n"
+        "9. Source coverage (Criterion B): Every source listed in highlighted_news must appear in the expected sources "
+        f"derived from the article corpus. Expected sources: [{expected_sources_text}]. "
+        "Reject if any highlighted_news item has a source NOT in that list.\n"
+        f"10. No generic keywords (Criterion C): trending_keywords must not contain overly generic terms "
+        f"such as: {sorted(_GENERIC_KEYWORDS)}. Reject if any such term is present.\n"
+        f"{generic_warning}"
+        "\n--- REPORT ---\n"
         f"Executive Summary:\n{executive_summary}\n\n"
         f"Trending Keywords: {', '.join(trending_keywords)}\n\n"
         f"Highlighted News:{news_text}\n"

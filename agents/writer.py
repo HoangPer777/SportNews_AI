@@ -35,6 +35,10 @@ def _build_summary_prompt(articles) -> str:
         "   - Paragraph 2: Most prominent trend with analysis (2-3 sentences)\n"
         "   - Paragraph 3: Second major development (2-3 sentences)\n"
         "   - Paragraph 4: Closing outlook (2 sentences)\n"
+        "   ANTI-REPETITION RULES (strictly enforced):\n"
+        "   - Each paragraph MUST cover a DIFFERENT topic or event — no two paragraphs may discuss the same subject.\n"
+        "   - Paragraph 4 MUST NOT restate, paraphrase, or echo the opening sentence or theme of Paragraph 1.\n"
+        "   - Do NOT repeat the same idea, phrase, or event across paragraphs.\n"
         "2. trending_keywords: 8-12 significant keywords as a JSON array.\n\n"
         "Return ONLY a valid JSON object:\n"
         '{"executive_summary": "<4 paragraphs separated by \\n\\n>", "trending_keywords": ["kw1", "kw2", ...]}\n'
