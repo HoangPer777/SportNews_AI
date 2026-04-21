@@ -72,13 +72,17 @@ def planner_node(state: ReportState) -> ReportState:
         raw = response.content.strip()
 
         # Strip markdown code fences if present
-        if raw.startswith("```"):
-            lines = raw.splitlines()
-            raw = "\n".join(
-                line for line in lines if not line.startswith("```")
-            ).strip()
+        if "```" in raw:
+            import re
+            raw = re.sub(r"```(?:json)?\s*", "", raw).strip()
 
-        data = json.loads(raw)
+        # Find the JSON object boundaries
+        start = raw.find("{")
+        end = raw.rfind("}") + 1
+        if start != -1 and end > start:
+            raw = raw[start:end]
+
+        data = json.loads(raw, strict=False)
 
         sub_goals = data.get("sub_goals", [])
         sub_goals = _ensure_required_sub_goals(sub_goals)
