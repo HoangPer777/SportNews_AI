@@ -19,8 +19,8 @@ def _build_prompt(state: ReportState) -> str:
 
     if report is None:
         return (
-            "The report is missing entirely. Reject it.\n\n"
-            'Return ONLY a JSON object: {"status": "rejected", "reason": "Report is missing."}'
+            "Báo cáo bị thiếu hoàn toàn. Từ chối.\n\n"
+            'Trả về CHỈ một JSON object: {"status": "rejected", "reason": "Báo cáo bị thiếu."}'
         )
 
     executive_summary = report.executive_summary or ""
@@ -30,20 +30,23 @@ def _build_prompt(state: ReportState) -> str:
     news_text = ""
     for i, item in enumerate(highlighted_news, 1):
         news_text += (
-            f"\n[{i}] Headline: {item.headline}\n"
-            f"    Summary: {item.summary}\n"
-            f"    Source: {item.source}\n"
+            f"\n[{i}] Tiêu đề: {item.headline}\n"
+            f"    Tóm tắt: {item.summary}\n"
+            f"    Nguồn: {item.source}\n"
             f"    URL: {item.url}\n"
         )
 
     return (
         "You are a senior sports journalism editor reviewing a weekly intelligence report.\n"
-        "Evaluate the report below against the following quality criteria:\n"
+        "Evaluate the report below against these quality criteria:\n"
         "1. Completeness: executive_summary is non-empty, trending_keywords has at least 1 item, "
         "highlighted_news has at least 1 item with all required fields (headline, summary, source, url).\n"
         "2. Factual grounding: claims are supported by the provided article data, not invented.\n"
         "3. Professional tone: language is clear, objective, and suitable for a professional audience.\n"
-        "4. All three sections are present and substantive.\n\n"
+        "4. All three sections are present and substantive.\n"
+        "5. ALL content MUST be in VIETNAMESE (proper nouns like team/player names can stay in original language).\n"
+        "6. Consistency: executive_summary must mention events from highlighted_news and vice versa.\n"
+        "7. Depth: executive_summary must analyze trends, not just list events. Each summary in highlighted_news must have at least 2 sentences.\n\n"
         "--- REPORT ---\n"
         f"Executive Summary:\n{executive_summary}\n\n"
         f"Trending Keywords: {', '.join(trending_keywords)}\n\n"
@@ -69,13 +72,17 @@ def reviewer_node(state: ReportState) -> ReportState:
         raw = response.content.strip()
 
         # Strip markdown code fences if present
-        if raw.startswith("```"):
-            lines = raw.splitlines()
-            raw = "\n".join(
-                line for line in lines if not line.startswith("```")
-            ).strip()
+        if "```" in raw:
+            import re
+            raw = re.sub(r"```(?:json)?\s*", "", raw).strip()
 
-        data = json.loads(raw)
+        # Find the JSON object boundaries
+        start = raw.find("{")
+        end = raw.rfind("}") + 1
+        if start != -1 and end > start:
+            raw = raw[start:end]
+
+        data = json.loads(raw, strict=False)
         status = data.get("status", "").lower()
         reason = data.get("reason", "")
 
