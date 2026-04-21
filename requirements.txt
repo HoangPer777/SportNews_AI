@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+langchain
+langgraph
+langchain-groq
+google-genai
+faiss-cpu
+sqlalchemy
+psycopg2-binary
+requests
+beautifulsoup4
+pydantic
+python-dotenv
+numpy
+hypothesis
+pytest
