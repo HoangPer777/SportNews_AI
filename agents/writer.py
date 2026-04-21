@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 from langchain_groq import ChatGroq
 
@@ -51,7 +51,7 @@ def _build_prompt(articles) -> str:
 
 def _build_markdown(report: ReportSchema) -> str:
     """Convert a ReportSchema into a Markdown string."""
-    generated_at_str = report.generated_at.strftime("%d/%m/%Y %H:%M UTC")
+    generated_at_str = report.generated_at.strftime("%d/%m/%Y %H:%M (GMT+7)")
 
     lines = ["# Báo Cáo Thể Thao Tuần", ""]
     lines += [f"*Ngày tạo: {generated_at_str}*", ""]
@@ -74,15 +74,11 @@ def _build_markdown(report: ReportSchema) -> str:
     lines += ["## Tin Tức Nổi Bật", ""]
     for item in report.highlighted_news:
         lines.append(f"### {item.headline}")
-        lines.append("")
-        # Summary
         sentences = [s.strip() for s in item.summary.split(". ") if s.strip()]
         summary = ". ".join(sentences)
         if summary and not summary.endswith("."):
             summary += "."
         lines.append(summary)
-        lines.append("")
-        # Source and URL on separate lines, below summary
         lines.append(f"**Nguồn:** {item.source}  ")
         lines.append(f"**URL:** {item.url}")
         lines.append("")
@@ -130,11 +126,12 @@ def writer_node(state: ReportState) -> ReportState:
             for item in data.get("highlighted_news", [])
         ]
 
+        VN_TZ = timezone(timedelta(hours=7))
         report = ReportSchema(
             executive_summary=data["executive_summary"],
             trending_keywords=data.get("trending_keywords", []),
             highlighted_news=highlighted_news,
-            generated_at=datetime.utcnow(),
+            generated_at=datetime.now(tz=VN_TZ),
         )
 
         # Save Markdown to disk
