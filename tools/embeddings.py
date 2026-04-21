@@ -29,33 +29,35 @@ def _get_client() -> genai.Client:
 
 
 def _embed_batch(texts: list[str], task_type: str = "RETRIEVAL_DOCUMENT") -> list[list[float]]:
-    """Embed a batch of texts in a single API call with exponential backoff on 429."""
+    """Embed a batch of texts, one API call per text to ensure correct results."""
     client = _get_client()
     model = os.environ.get("EMBEDDING_MODEL", EMBEDDING_MODEL)
 
-    backoff = _INITIAL_BACKOFF
-    for attempt in range(1, _MAX_RETRIES + 1):
-        try:
-            result = client.models.embed_content(
-                model=model,
-                contents=texts,
-                config=types.EmbedContentConfig(task_type=task_type),
-            )
-            return [e.values for e in result.embeddings]
-        except Exception as exc:
-            err_str = str(exc)
-            is_rate_limit = "429" in err_str or "RESOURCE_EXHAUSTED" in err_str
-            if is_rate_limit and attempt < _MAX_RETRIES:
-                logger.warning(
-                    "Rate limit hit (attempt %d/%d). Waiting %ds before retry...",
-                    attempt, _MAX_RETRIES, backoff,
+    results = []
+    for text in texts:
+        backoff = _INITIAL_BACKOFF
+        for attempt in range(1, _MAX_RETRIES + 1):
+            try:
+                result = client.models.embed_content(
+                    model=model,
+                    contents=text,
+                    config=types.EmbedContentConfig(task_type=task_type),
                 )
-                time.sleep(backoff)
-                backoff *= 2  # exponential backoff
-            else:
-                raise
-
-    raise RuntimeError("Exceeded max retries for embedding API call.")
+                results.append(result.embeddings[0].values)
+                break
+            except Exception as exc:
+                err_str = str(exc)
+                is_rate_limit = "429" in err_str or "RESOURCE_EXHAUSTED" in err_str
+                if is_rate_limit and attempt < _MAX_RETRIES:
+                    logger.warning(
+                        "Rate limit hit (attempt %d/%d). Waiting %ds before retry...",
+                        attempt, _MAX_RETRIES, backoff,
+                    )
+                    time.sleep(backoff)
+                    backoff *= 2
+                else:
+                    raise
+    return results
 
 
 def embed_text(text: str) -> list[float]:
@@ -64,20 +66,67 @@ def embed_text(text: str) -> list[float]:
 
 
 def embed_articles(articles, batch_size: int = 5) -> np.ndarray:
-    """Embed a list of articles in batches, returning array of shape (N, D)."""
-    texts = [a.title + " " + a.content for a in articles]
-    all_embeddings: list[list[float]] = []
+    """Embed articles, using cached embeddings from DB where available."""
+    from tools.db import save_embeddings
 
-    for i in range(0, len(texts), batch_size):
-        batch = texts[i: i + batch_size]
-        logger.info("Embedding batch %d-%d of %d articles...", i + 1, i + len(batch), len(texts))
-        vecs = _embed_batch(batch, task_type="RETRIEVAL_DOCUMENT")
-        all_embeddings.extend(vecs)
-        # Small pause between batches to stay within rate limits
-        if i + batch_size < len(texts):
-            time.sleep(2)
+    result_map: dict[int, list[float]] = {}
+    to_embed: list[tuple[int, str, str]] = []
 
-    return np.array(all_embeddings, dtype=np.float32)
+    for i, article in enumerate(articles):
+        emb = article.embedding
+        if emb and isinstance(emb, list) and len(emb) > 10:  # valid embedding has many dimensions
+            result_map[i] = emb
+        else:
+            to_embed.append((i, article.url, article.title + " " + article.content))
+
+    logger.info(
+        "Embedding: %d cached, %d need API calls (%d batches of %d)",
+        len(result_map), len(to_embed),
+        (len(to_embed) + batch_size - 1) // batch_size if to_embed else 0,
+        batch_size,
+    )
+
+    new_url_embeddings: list[tuple[str, list[float]]] = []
+
+    for batch_start in range(0, len(to_embed), batch_size):
+        batch = to_embed[batch_start: batch_start + batch_size]
+        texts = [t for _, _, t in batch]
+        logger.info(
+            "Embedding batch %d-%d of %d new articles...",
+            batch_start + 1, batch_start + len(batch), len(to_embed),
+        )
+        try:
+            vecs = _embed_batch(texts, task_type="RETRIEVAL_DOCUMENT")
+            if len(vecs) != len(batch):
+                logger.warning("API returned %d vectors for %d texts in batch.", len(vecs), len(batch))
+            for (orig_idx, url, _), vec in zip(batch, vecs):
+                result_map[orig_idx] = vec
+                new_url_embeddings.append((url, vec))
+            logger.debug("Batch done: %d/%d articles embedded so far.", len(new_url_embeddings), len(to_embed))
+        except Exception as exc:
+            logger.error("Batch %d-%d failed: %s. Using zero vectors.", batch_start + 1, batch_start + len(batch), exc)
+            # Determine fallback dimension from any existing embedding
+            fallback_dim = len(next(iter(result_map.values()))) if result_map else 768
+            for (orig_idx, url, _) in batch:
+                result_map[orig_idx] = [0.0] * fallback_dim
+
+    if new_url_embeddings:
+        try:
+            save_embeddings(new_url_embeddings)
+            logger.info("Saved %d new embeddings to DB.", len(new_url_embeddings))
+        except Exception as exc:
+            logger.warning("Failed to save embeddings to DB: %s", exc)
+
+    # Safety check: fill any missing indices with zeros
+    if len(result_map) < len(articles):
+        fallback_dim = len(next(iter(result_map.values()))) if result_map else 768
+        for i in range(len(articles)):
+            if i not in result_map:
+                logger.warning("Missing embedding for article index %d, using zero vector.", i)
+                result_map[i] = [0.0] * fallback_dim
+
+    ordered = [result_map[i] for i in range(len(articles))]
+    return np.array(ordered, dtype=np.float32)
 
 
 def build_faiss_index(embeddings: np.ndarray) -> faiss.Index:
