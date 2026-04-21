@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from datetime import datetime, timedelta, timezone
 
@@ -29,9 +30,10 @@ news_articles = Table(
     Column("content", Text, nullable=False),
     Column("source", String(100), nullable=False),
     Column("url", Text, nullable=False, unique=True),
-    Column("published_at", Text, nullable=False),  # stored as ISO string; cast on query
+    Column("published_at", Text, nullable=False),
     Column("category", String(50), nullable=False, server_default="sports"),
     Column("created_at", Text, nullable=False, server_default=text("NOW()")),
+    Column("embedding", Text, nullable=True),  # JSON-serialized float list
     Index("idx_news_articles_published_at", "published_at"),
     Index("idx_news_articles_category", "category"),
 )
@@ -48,6 +50,11 @@ def get_engine() -> Engine:
         )
     engine = create_engine(url)
     metadata.create_all(engine)
+    # Add embedding column if it doesn't exist yet (for existing DBs)
+    with engine.begin() as conn:
+        conn.execute(text(
+            "ALTER TABLE news_articles ADD COLUMN IF NOT EXISTS embedding TEXT"
+        ))
     return engine
 
 
@@ -55,7 +62,6 @@ def save_articles(articles: list[ArticleSchema], engine: Engine | None = None) -
     """Bulk-insert articles, silently skipping rows with duplicate URLs."""
     if not articles:
         return
-
     if engine is None:
         engine = get_engine()
 
@@ -87,7 +93,7 @@ def get_articles_last_7_days(engine: Engine | None = None) -> list[ArticleSchema
     with engine.connect() as conn:
         result = conn.execute(
             text(
-                "SELECT id, title, content, source, url, published_at, category, created_at "
+                "SELECT id, title, content, source, url, published_at, category, created_at, embedding "
                 "FROM news_articles "
                 "WHERE published_at >= :cutoff "
                 "ORDER BY published_at DESC"
@@ -98,16 +104,36 @@ def get_articles_last_7_days(engine: Engine | None = None) -> list[ArticleSchema
 
     articles: list[ArticleSchema] = []
     for row in rows:
-        articles.append(
-            ArticleSchema(
-                id=row[0],
-                title=row[1],
-                content=row[2],
-                source=row[3],
-                url=row[4],
-                published_at=datetime.fromisoformat(str(row[5])),
-                category=row[6],
-                created_at=datetime.fromisoformat(str(row[7])) if row[7] else None,
-            )
+        a = ArticleSchema(
+            id=row[0],
+            title=row[1],
+            content=row[2],
+            source=row[3],
+            url=row[4],
+            published_at=datetime.fromisoformat(str(row[5])),
+            category=row[6],
+            created_at=datetime.fromisoformat(str(row[7])) if row[7] else None,
         )
+        # Attach cached embedding if present
+        if row[8]:
+            try:
+                a.embedding = json.loads(row[8])
+            except Exception:
+                pass
+        articles.append(a)
     return articles
+
+
+def save_embeddings(url_embedding_pairs: list[tuple[str, list[float]]], engine: Engine | None = None) -> None:
+    """Persist computed embeddings back to DB by URL."""
+    if not url_embedding_pairs:
+        return
+    if engine is None:
+        engine = get_engine()
+
+    with engine.begin() as conn:
+        for url, embedding in url_embedding_pairs:
+            conn.execute(
+                text("UPDATE news_articles SET embedding = :emb WHERE url = :url"),
+                {"emb": json.dumps(embedding), "url": url},
+            )

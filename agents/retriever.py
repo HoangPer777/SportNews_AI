@@ -5,8 +5,6 @@ from __future__ import annotations
 import logging
 import os
 
-import numpy as np
-
 from models.schemas import ArticleSchema, ReportState
 from tools.embeddings import embed_query, load_faiss_index
 
@@ -19,49 +17,49 @@ REQUIRED_QUERY_TOPICS = [
     "international sports trends",
 ]
 
-MAX_RETRIEVED_ARTICLES = 15
+RETRIEVER_MAX = 30  # FAISS pre-filters to this many before Ranker selects top 10
 
 
 def retriever_node(state: ReportState) -> ReportState:
-    """LangGraph node: retrieve the most relevant articles using FAISS semantic search."""
+    """LangGraph node: use FAISS to pre-filter ~30 relevant articles for the Ranker."""
     articles: list[ArticleSchema] = state.get("articles", [])
     plan = state.get("plan")
 
-    # Derive queries from plan sub-goals, then always append the 4 required topics
+    if not articles:
+        state["retrieved_articles"] = []
+        return state
+
+    # Build query list from plan sub-goals + required topics
     queries: list[str] = []
     if plan and plan.sub_goals:
         queries.extend(plan.sub_goals)
-
-    # Ensure all required query topics are included
     lower_queries = [q.lower() for q in queries]
     for topic in REQUIRED_QUERY_TOPICS:
         if topic.lower() not in lower_queries:
             queries.append(topic)
 
-    top_k = int(os.environ.get("TOP_K_RETRIEVAL", "5"))
+    top_k = int(os.environ.get("TOP_K_RETRIEVAL", "10"))
 
     try:
         index = load_faiss_index()
     except FileNotFoundError as exc:
-        logger.error("FAISS index not found: %s", exc)
-        state["error"] = f"Retriever failed: {exc}"
-        state["retrieved_articles"] = []
+        logger.warning("FAISS index not found (%s), passing all articles to Ranker.", exc)
+        state["retrieved_articles"] = articles
         return state
 
     seen_urls: set[str] = set()
     retrieved: list[ArticleSchema] = []
 
+    # FAISS search: each query contributes top_k results, deduplicated
     for query in queries:
-        if len(retrieved) >= MAX_RETRIEVED_ARTICLES:
+        if len(retrieved) >= RETRIEVER_MAX:
             break
-
         try:
             query_vec = embed_query(query)
             k = min(top_k, index.ntotal)
             if k == 0:
                 continue
             _distances, indices = index.search(query_vec, k)
-
             for idx in indices[0]:
                 if idx < 0 or idx >= len(articles):
                     continue
@@ -69,27 +67,22 @@ def retriever_node(state: ReportState) -> ReportState:
                 if article.url not in seen_urls:
                     seen_urls.add(article.url)
                     retrieved.append(article)
-                    if len(retrieved) >= MAX_RETRIEVED_ARTICLES:
+                    if len(retrieved) >= RETRIEVER_MAX:
                         break
-
         except Exception as exc:
             logger.warning("Query '%s' failed: %s", query, exc)
-            continue
 
-    # Ensure source diversity: if any source has 0 articles, add its top article
+    # Ensure source diversity: guarantee at least 1 article per source
     sources_present = {a.source for a in retrieved}
-    all_sources = {a.source for a in articles}
-    missing_sources = all_sources - sources_present
-
-    for source in missing_sources:
-        source_articles = [a for a in articles if a.source == source and a.url not in seen_urls]
-        if source_articles:
-            retrieved.append(source_articles[0])
-            seen_urls.add(source_articles[0].url)
-            logger.info("Added fallback article from missing source: %s", source)
+    for source in {a.source for a in articles} - sources_present:
+        for article in articles:
+            if article.source == source and article.url not in seen_urls:
+                seen_urls.add(article.url)
+                retrieved.append(article)
+                break
 
     logger.info(
-        "Retrieved %d articles from sources: %s",
+        "Retriever → Ranker: %d articles (sources: %s)",
         len(retrieved),
         {a.source for a in retrieved},
     )

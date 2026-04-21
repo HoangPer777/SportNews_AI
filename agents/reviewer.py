@@ -76,10 +76,18 @@ def reviewer_node(state: ReportState) -> ReportState:
             import re
             raw = re.sub(r"```(?:json)?\s*", "", raw).strip()
 
-        # Find the JSON object boundaries
+        # Find the FIRST complete JSON object only
         start = raw.find("{")
-        end = raw.rfind("}") + 1
-        if start != -1 and end > start:
+        if start != -1:
+            depth, end = 0, start
+            for i, ch in enumerate(raw[start:], start):
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end = i + 1
+                        break
             raw = raw[start:end]
 
         data = json.loads(raw, strict=False)

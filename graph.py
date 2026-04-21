@@ -7,6 +7,7 @@ import logging
 from langgraph.graph import END, START, StateGraph
 
 from agents.planner import planner_node
+from agents.ranker import ranker_node
 from agents.retriever import retriever_node
 from agents.reviewer import reviewer_node, should_rewrite
 from agents.writer import writer_node
@@ -31,12 +32,14 @@ def build_graph():
 
     graph.add_node("planner", planner_node)
     graph.add_node("retriever", retriever_node)
+    graph.add_node("ranker", ranker_node)
     graph.add_node("writer", writer_node)
     graph.add_node("reviewer", reviewer_node)
 
     graph.add_edge(START, "planner")
     graph.add_edge("planner", "retriever")
-    graph.add_edge("retriever", "writer")
+    graph.add_edge("retriever", "ranker")
+    graph.add_edge("ranker", "writer")
     graph.add_edge("writer", "reviewer")
 
     graph.add_conditional_edges(
@@ -96,6 +99,7 @@ def run_pipeline() -> ReportState:
         "articles": articles,
         "plan": None,  # type: ignore[typeddict-item]
         "retrieved_articles": [],
+        "ranked_articles": [],
         "report": None,
         "review_status": "pending",
         "rewrite_count": 0,
