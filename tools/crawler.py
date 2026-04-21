@@ -172,19 +172,20 @@ def crawl_vnexpress() -> list[ArticleSchema]:
 
 
 def crawl_thanhnien() -> list[ArticleSchema]:
-    # Thanh Nien article URLs: https://thanhnien.vn/slug-185XXXXXXX.htm
+    # Thanh Nien: article links are relative paths like /slug-185XXXXXXXXX.htm
     return _crawl_source(
         section_url="https://thanhnien.vn/the-thao/",
-        article_url_pattern=r"https://thanhnien\.vn/[a-z0-9][a-z0-9\-]+-\d+\.htm",
+        article_url_pattern=r"-185\d{15}\.htm$",
         source_name="Thanh Nien",
+        base_url="https://thanhnien.vn",
     )
 
 
 def crawl_tuoitre() -> list[ArticleSchema]:
-    # Tuoi Tre article URLs: https://tuoitre.vn/slug-XXXXXXXX.htm
+    # Tuoi Tre: article links are relative paths like /slug-20260421XXXXXXXXXXXXXXXXX.htm (17 digits)
     return _crawl_source(
         section_url="https://tuoitre.vn/the-thao.htm",
-        article_url_pattern=r"https://tuoitre\.vn/[a-z0-9][a-z0-9\-]+-\d+\.htm",
+        article_url_pattern=r"-202\d{14}\.htm$",
         source_name="Tuoi Tre",
         base_url="https://tuoitre.vn",
     )

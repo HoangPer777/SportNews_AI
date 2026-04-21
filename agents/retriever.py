@@ -19,7 +19,7 @@ REQUIRED_QUERY_TOPICS = [
     "international sports trends",
 ]
 
-MAX_RETRIEVED_ARTICLES = 10
+MAX_RETRIEVED_ARTICLES = 15
 
 
 def retriever_node(state: ReportState) -> ReportState:
@@ -57,7 +57,6 @@ def retriever_node(state: ReportState) -> ReportState:
 
         try:
             query_vec = embed_query(query)
-            # query_vec shape: (1, D)
             k = min(top_k, index.ntotal)
             if k == 0:
                 continue
@@ -77,5 +76,22 @@ def retriever_node(state: ReportState) -> ReportState:
             logger.warning("Query '%s' failed: %s", query, exc)
             continue
 
+    # Ensure source diversity: if any source has 0 articles, add its top article
+    sources_present = {a.source for a in retrieved}
+    all_sources = {a.source for a in articles}
+    missing_sources = all_sources - sources_present
+
+    for source in missing_sources:
+        source_articles = [a for a in articles if a.source == source and a.url not in seen_urls]
+        if source_articles:
+            retrieved.append(source_articles[0])
+            seen_urls.add(source_articles[0].url)
+            logger.info("Added fallback article from missing source: %s", source)
+
+    logger.info(
+        "Retrieved %d articles from sources: %s",
+        len(retrieved),
+        {a.source for a in retrieved},
+    )
     state["retrieved_articles"] = retrieved
     return state

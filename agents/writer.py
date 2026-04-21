@@ -33,19 +33,23 @@ def _build_prompt(articles) -> str:
         "Only keep proper nouns (team names, player names) in their original language.\n\n"
         f"Articles:\n{articles_text if articles_text else '(No articles available)'}\n\n"
         "Requirements:\n"
-        "1. executive_summary: 3-4 paragraphs in Vietnamese. Analyze trends and notable developments — do NOT just list events.\n"
-        "2. trending_keywords: list of significant keywords (can be in original language).\n"
-        "3. highlighted_news: for each article, write a 3-4 sentence summary in Vietnamese with full context.\n"
-        "4. highlighted_news must cover ALL events mentioned in executive_summary and vice versa.\n\n"
-        "Return ONLY a valid JSON object with this exact structure (no markdown, no extra text):\n"
+        "1. executive_summary: EXACTLY 4 paragraphs in Vietnamese:\n"
+        "   - Paragraph 1: Overall landscape of the week in sports (2-3 sentences)\n"
+        "   - Paragraph 2: Most prominent trend or storyline with analysis (2-3 sentences)\n"
+        "   - Paragraph 3: Second major trend or notable development (2-3 sentences)\n"
+        "   - Paragraph 4: Closing outlook or summary of what to watch next (2 sentences)\n"
+        "2. trending_keywords: 8-12 significant keywords.\n"
+        "3. highlighted_news: Select the 8-10 MOST IMPORTANT articles. Must include articles from ALL available sources (VnExpress, Thanh Nien, Tuoi Tre). Write 2-3 sentence summary in Vietnamese for each.\n"
+        "4. The executive_summary must reference events from highlighted_news.\n\n"
+        "Return ONLY a valid JSON object (no markdown, no extra text):\n"
         "{\n"
-        '  "executive_summary": "<3-4 paragraphs in Vietnamese>",\n'
+        '  "executive_summary": "<exactly 4 paragraphs separated by \\n\\n>",\n'
         '  "trending_keywords": ["keyword1", "keyword2"],\n'
         '  "highlighted_news": [\n'
-        '    {"headline": "<Vietnamese headline>", "summary": "<3-4 sentences in Vietnamese>", "source": "...", "url": "..."}\n'
+        '    {"headline": "<Vietnamese headline>", "summary": "<2-3 sentences in Vietnamese>", "source": "...", "url": "..."}\n'
         "  ]\n"
         "}\n"
-        "IMPORTANT: Return ONLY the JSON object. No markdown fences. No text before or after."
+        "IMPORTANT: Return ONLY the JSON. No markdown fences. No text before or after."
     )
 
 
