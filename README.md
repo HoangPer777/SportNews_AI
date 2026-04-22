@@ -5,18 +5,19 @@ A multi-agent AI pipeline that automatically crawls Vietnamese sports news, proc
 ## Architecture
 
 ```
-START → Planner → Retriever → Writer → Reviewer
-                                  ↑         |
-                                  └─────────┘
-                               (rewrite if rejected, max 2x)
+START → Planner → Retriever → Ranker → Writer → Reviewer
+                                              ↑         |
+                                              └─────────┘
+                                           (rewrite if rejected, max 2x)
 ```
 
-The pipeline is built with **LangGraph** and consists of 4 agents:
+The pipeline is built with **LangGraph** and consists of 5 agents:
 
 | Agent | Role |
 |---|---|
 | **Planner** | Analyzes the article corpus and generates a structured weekly plan with sub-goals |
-| **Retriever** | Performs semantic search over articles using FAISS + Gemini embeddings |
+| **Retriever** | Performs semantic search over articles using FAISS + Gemini embeddings (top 30) |
+| **Ranker** | Uses LLM to select the top 8 highest-value articles from retrieved candidates |
 | **Writer** | Generates the full weekly report (executive summary, trending keywords, highlighted news) |
 | **Reviewer** | Validates report quality and routes back to Writer if rejected (max 2 rewrites) |
 
@@ -39,6 +40,7 @@ The pipeline is built with **LangGraph** and consists of 4 agents:
 ├── agents/
 │   ├── planner.py        # Planner agent
 │   ├── retriever.py      # Retriever agent (FAISS semantic search)
+│   ├── ranker.py         # Ranker agent (LLM-based top-8 selection)
 │   ├── writer.py         # Writer agent (report generation)
 │   └── reviewer.py       # Reviewer agent (quality validation)
 ├── tools/
@@ -120,9 +122,10 @@ The report is also saved as Markdown to `outputs/weekly_report.md`.
 3. **Persist** — saves to PostgreSQL (upsert on URL conflict)
 4. **Embed** — generates Gemini embeddings and builds a FAISS index
 5. **Plan** — LLM generates a structured plan with sub-goals for the week
-6. **Retrieve** — semantic search returns the most relevant articles (top-K per query)
-7. **Write** — LLM generates the full structured report
-8. **Review** — LLM validates quality; rejects and rewrites up to 2 times if needed
+6. **Retrieve** — semantic search returns the most relevant articles (top 30)
+7. **Rank** — LLM selects the top 8 highest-value articles ensuring source diversity
+8. **Write** — LLM generates the full structured report (2 separate LLM calls)
+9. **Review** — LLM validates quality; rejects and rewrites up to 2 times if needed
 
 ## Running Tests
 
@@ -143,4 +146,4 @@ The test suite uses **Hypothesis** for property-based testing.
 | `EMBEDDING_MODEL` | Gemini embedding model name |
 | `FAISS_INDEX_PATH` | Path to save/load FAISS index (default: `data/faiss.index`) |
 | `REPORT_OUTPUT_PATH` | Path to save the markdown report (default: `outputs/weekly_report.md`) |
-| `TOP_K_RETRIEVAL` | Number of articles to retrieve per query (default: `5`) |
+| `TOP_K_RETRIEVAL` | Number of articles to retrieve per query (default: `10`) |
