@@ -55,12 +55,14 @@ def deduplicate_articles(articles: list[ArticleSchema]) -> list[ArticleSchema]:
     return result
 
 
-def filter_recent_articles(articles: list[ArticleSchema]) -> list[ArticleSchema]:
-    """Keep only articles published within the last 7 days with category == 'sports'.
+def filter_recent_articles(articles: list[ArticleSchema], lookback_days: int = 7) -> list[ArticleSchema]:
+    """Keep only articles published within lookback_days with category == 'sports'.
 
     Requirements: 3.3, 3.4
     """
-    cutoff = datetime.now(tz=timezone.utc) - timedelta(days=7)
+    if lookback_days < 1:
+        raise ValueError("lookback_days must be >= 1")
+    cutoff = datetime.now(tz=timezone.utc) - timedelta(days=lookback_days)
     result: list[ArticleSchema] = []
 
     for article in articles:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Optional, TypedDict
+from datetime import date, datetime
+from typing import Literal, Optional, TypedDict
 
 from pydantic import BaseModel, Field
 
@@ -40,9 +40,25 @@ class ReportSchema(BaseModel):
     generated_at: datetime
 
 
+class GenerateReportRequest(BaseModel):
+    period_type: Literal["daily", "weekly"] = "daily"
+    lookback_days: Optional[int] = None
+
+
+class ReportMetadata(BaseModel):
+    period_type: str
+    period_start: date
+    period_end: date
+    lookback_days: int
+    source_count: int = 0
+    ranked_count: int = 0
+    stage: Optional[str] = None
+
+
 class ReportResponse(BaseModel):
     status: str
     report: Optional[ReportSchema] = None
+    metadata: Optional[ReportMetadata] = None
     error: Optional[str] = None
 
 
@@ -52,6 +68,7 @@ class ReportState(TypedDict):
     retrieved_articles: list[ArticleSchema]
     ranked_articles: list[ArticleSchema]
     report: Optional[ReportSchema]
+    metadata: Optional[ReportMetadata]
     review_status: str
     rewrite_count: int
     error: Optional[str]

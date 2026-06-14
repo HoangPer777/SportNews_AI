@@ -44,6 +44,14 @@ def article_list_strategy(draw):
 
 
 def _make_llm_response(articles) -> str:
+    """Build a valid JSON LLM response for summary fields."""
+    return json.dumps({
+        "executive_summary": "This week saw exciting developments across multiple sports disciplines.",
+        "trending_keywords": ["football", "Vietnam", "championship"],
+    })
+
+
+def _make_news_response(articles) -> str:
     """Build a valid JSON LLM response referencing the provided articles."""
     highlighted = []
     for a in articles[:3]:
@@ -61,12 +69,7 @@ def _make_llm_response(articles) -> str:
             "source": "VnExpress",
             "url": "https://example.com/top-story",
         })
-
-    return json.dumps({
-        "executive_summary": "This week saw exciting developments across multiple sports disciplines.",
-        "trending_keywords": ["football", "Vietnam", "championship"],
-        "highlighted_news": highlighted,
-    })
+    return json.dumps(highlighted)
 
 
 def _build_state(articles: list[ArticleSchema]) -> ReportState:
@@ -99,14 +102,16 @@ def test_writer_report_contains_three_sections(articles: list[ArticleSchema]) ->
     state = _build_state(articles)
     mock_content = _make_llm_response(articles)
 
-    mock_message = MagicMock()
-    mock_message.content = mock_content
+    mock_news_content = _make_news_response(articles)
 
     mock_llm = MagicMock()
-    mock_llm.invoke.return_value = mock_message
+    mock_llm.invoke.side_effect = [
+        MagicMock(content=mock_content),
+        MagicMock(content=mock_news_content),
+    ]
 
     with (
-        patch("agents.writer.ChatGoogleGenerativeAI", return_value=mock_llm),
+        patch("agents.writer.get_safe_llm", return_value=mock_llm),
         tempfile.TemporaryDirectory() as tmpdir,
         patch.dict(os.environ, {"REPORT_OUTPUT_PATH": os.path.join(tmpdir, "report.md")}),
     ):
@@ -136,16 +141,18 @@ def test_writer_saves_markdown_to_disk(articles: list[ArticleSchema]) -> None:
     state = _build_state(articles)
     mock_content = _make_llm_response(articles)
 
-    mock_message = MagicMock()
-    mock_message.content = mock_content
+    mock_news_content = _make_news_response(articles)
 
     mock_llm = MagicMock()
-    mock_llm.invoke.return_value = mock_message
+    mock_llm.invoke.side_effect = [
+        MagicMock(content=mock_content),
+        MagicMock(content=mock_news_content),
+    ]
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_path = os.path.join(tmpdir, "weekly_report.md")
         with (
-            patch("agents.writer.ChatGoogleGenerativeAI", return_value=mock_llm),
+            patch("agents.writer.get_safe_llm", return_value=mock_llm),
             patch.dict(os.environ, {"REPORT_OUTPUT_PATH": output_path}),
         ):
             result = writer_node(state)

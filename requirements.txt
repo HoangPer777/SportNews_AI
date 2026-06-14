@@ -3,6 +3,7 @@ uvicorn
 langchain
 langgraph
 langchain-groq
+langchain-openai
 google-genai
 faiss-cpu
 sqlalchemy

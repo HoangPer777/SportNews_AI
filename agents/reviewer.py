@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 
-from langchain_groq import ChatGroq
-
+from core.llm import get_safe_llm
 from models.schemas import ReportState
 
 logger = logging.getLogger(__name__)
@@ -100,11 +98,10 @@ def _build_prompt(state: ReportState) -> str:
 
 def reviewer_node(state: ReportState) -> ReportState:
     """LangGraph node: validate the report and set review_status."""
-    model_name = os.getenv("GROQ_LLM_MODEL", "grok-3-mini")
     prompt = _build_prompt(state)
 
     try:
-        llm = ChatGroq(model=model_name, api_key=os.getenv("GROQ_API_KEY"))
+        llm = get_safe_llm("reviewer")
         response = llm.invoke(prompt)
         raw = response.content.strip()
 

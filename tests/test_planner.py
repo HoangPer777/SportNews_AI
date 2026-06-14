@@ -99,7 +99,7 @@ def test_planner_always_contains_required_sub_goals(
     mock_llm = MagicMock()
     mock_llm.invoke.return_value = mock_message
 
-    with patch("agents.planner.ChatGoogleGenerativeAI", return_value=mock_llm):
+    with patch("agents.planner.get_safe_llm", return_value=mock_llm):
         result = planner_node(state)
 
     assert result.get("error") is None, f"Unexpected error: {result.get('error')}"
@@ -136,7 +136,7 @@ def test_planner_adds_missing_required_sub_goals(
     mock_llm = MagicMock()
     mock_llm.invoke.return_value = mock_message
 
-    with patch("agents.planner.ChatGoogleGenerativeAI", return_value=mock_llm):
+    with patch("agents.planner.get_safe_llm", return_value=mock_llm):
         result = planner_node(state)
 
     assert result.get("error") is None, f"Unexpected error: {result.get('error')}"
@@ -161,7 +161,7 @@ def test_planner_sets_error_on_llm_failure() -> None:
     mock_llm = MagicMock()
     mock_llm.invoke.side_effect = RuntimeError("API unavailable")
 
-    with patch("agents.planner.ChatGoogleGenerativeAI", return_value=mock_llm):
+    with patch("agents.planner.get_safe_llm", return_value=mock_llm):
         result = planner_node(state)
 
     assert result["error"] is not None
@@ -186,7 +186,7 @@ def test_planner_strips_markdown_fences() -> None:
     mock_llm = MagicMock()
     mock_llm.invoke.return_value = mock_message
 
-    with patch("agents.planner.ChatGoogleGenerativeAI", return_value=mock_llm):
+    with patch("agents.planner.get_safe_llm", return_value=mock_llm):
         result = planner_node(state)
 
     assert result.get("error") is None

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from typing import Sequence
 
 import faiss
 import numpy as np
@@ -28,36 +29,74 @@ def _get_client() -> genai.Client:
     return genai.Client(api_key=api_key)
 
 
+def _extract_embedding_values(result) -> list[list[float]]:
+    embeddings = getattr(result, "embeddings", None) or []
+    return [embedding.values for embedding in embeddings]
+
+
+def _embed_contents(client: genai.Client, model: str, contents: str | Sequence[str], task_type: str) -> list[list[float]]:
+    result = client.models.embed_content(
+        model=model,
+        contents=contents,
+        config=types.EmbedContentConfig(task_type=task_type),
+    )
+    return _extract_embedding_values(result)
+
+
+def _embed_single_with_retry(client: genai.Client, model: str, text: str, task_type: str) -> list[float]:
+    backoff = _INITIAL_BACKOFF
+    for attempt in range(1, _MAX_RETRIES + 1):
+        try:
+            values = _embed_contents(client, model, text, task_type)
+            if not values:
+                raise ValueError("Embedding API returned no vectors.")
+            return values[0]
+        except Exception as exc:
+            err_str = str(exc)
+            is_rate_limit = "429" in err_str or "RESOURCE_EXHAUSTED" in err_str
+            if is_rate_limit and attempt < _MAX_RETRIES:
+                logger.warning(
+                    "Rate limit hit (attempt %d/%d). Waiting %ds before retry...",
+                    attempt, _MAX_RETRIES, backoff,
+                )
+                time.sleep(backoff)
+                backoff *= 2
+                continue
+            raise
+    raise RuntimeError("Embedding retry loop exited unexpectedly.")
+
+
 def _embed_batch(texts: list[str], task_type: str = "RETRIEVAL_DOCUMENT") -> list[list[float]]:
-    """Embed a batch of texts, one API call per text to ensure correct results."""
+    """Embed texts using a real batch request, with single-text fallback."""
+    if not texts:
+        return []
+
     client = _get_client()
     model = os.environ.get("EMBEDDING_MODEL", EMBEDDING_MODEL)
 
-    results = []
-    for text in texts:
-        backoff = _INITIAL_BACKOFF
-        for attempt in range(1, _MAX_RETRIES + 1):
-            try:
-                result = client.models.embed_content(
-                    model=model,
-                    contents=text,
-                    config=types.EmbedContentConfig(task_type=task_type),
+    backoff = _INITIAL_BACKOFF
+    for attempt in range(1, _MAX_RETRIES + 1):
+        try:
+            values = _embed_contents(client, model, texts, task_type)
+            if len(values) != len(texts):
+                raise ValueError(f"Embedding API returned {len(values)} vectors for {len(texts)} texts.")
+            return values
+        except Exception as exc:
+            err_str = str(exc)
+            is_rate_limit = "429" in err_str or "RESOURCE_EXHAUSTED" in err_str
+            if is_rate_limit and attempt < _MAX_RETRIES:
+                logger.warning(
+                    "Rate limit hit for batch of %d texts (attempt %d/%d). Waiting %ds before retry...",
+                    len(texts), attempt, _MAX_RETRIES, backoff,
                 )
-                results.append(result.embeddings[0].values)
-                break
-            except Exception as exc:
-                err_str = str(exc)
-                is_rate_limit = "429" in err_str or "RESOURCE_EXHAUSTED" in err_str
-                if is_rate_limit and attempt < _MAX_RETRIES:
-                    logger.warning(
-                        "Rate limit hit (attempt %d/%d). Waiting %ds before retry...",
-                        attempt, _MAX_RETRIES, backoff,
-                    )
-                    time.sleep(backoff)
-                    backoff *= 2
-                else:
-                    raise
-    return results
+                time.sleep(backoff)
+                backoff *= 2
+                continue
+            if len(texts) > 1 and not is_rate_limit:
+                logger.warning("Batch embedding failed, falling back to single-text calls: %s", exc)
+                return [_embed_single_with_retry(client, model, text, task_type) for text in texts]
+            raise
+    raise RuntimeError("Embedding retry loop exited unexpectedly.")
 
 
 def embed_text(text: str) -> list[float]:
@@ -65,9 +104,17 @@ def embed_text(text: str) -> list[float]:
     return _embed_batch([text], task_type="RETRIEVAL_DOCUMENT")[0]
 
 
-def embed_articles(articles, batch_size: int = 5) -> np.ndarray:
+def embed_articles(articles, batch_size: int | None = None) -> np.ndarray:
     """Embed articles, using cached embeddings from DB where available."""
     from tools.db import save_embeddings
+
+    if batch_size is None:
+        try:
+            batch_size = int(os.environ.get("EMBEDDING_BATCH_SIZE", "5"))
+        except ValueError:
+            batch_size = 5
+    if batch_size <= 0:
+        batch_size = 5
 
     result_map: dict[int, list[float]] = {}
     to_embed: list[tuple[int, str, str]] = []

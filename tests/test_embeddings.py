@@ -11,12 +11,39 @@ from hypothesis import strategies as st
 
 from models.schemas import ArticleSchema
 from tools.embeddings import build_faiss_index, embed_articles, load_faiss_index
+from tools import embeddings as embedding_tools
 
 # ---------------------------------------------------------------------------
 # Strategies
 # ---------------------------------------------------------------------------
 
 FIXED_DIM = 768  # fixed embedding dimension used in mocked embed_text
+
+
+class _FakeEmbedding:
+    def __init__(self, values):
+        self.values = values
+
+
+class _FakeResult:
+    def __init__(self, vectors):
+        self.embeddings = [_FakeEmbedding(vector) for vector in vectors]
+
+
+class _FakeModels:
+    def __init__(self):
+        self.calls = []
+
+    def embed_content(self, model, contents, config):
+        self.calls.append(contents)
+        if isinstance(contents, list):
+            return _FakeResult([[float(i)] * FIXED_DIM for i, _ in enumerate(contents)])
+        return _FakeResult([[0.5] * FIXED_DIM])
+
+
+class _FakeClient:
+    def __init__(self):
+        self.models = _FakeModels()
 
 
 def article_strategy():
@@ -37,6 +64,19 @@ def fixed_embedding(_text: str) -> list[float]:
     return [0.1] * FIXED_DIM
 
 
+def test_embed_batch_uses_single_batch_api_call_for_multiple_texts():
+    client = _FakeClient()
+
+    with (
+        patch("tools.embeddings._get_client", return_value=client),
+        patch.dict(os.environ, {"EMBEDDING_MODEL": "fake-model"}, clear=False),
+    ):
+        result = embedding_tools._embed_batch(["a", "b", "c"], task_type="RETRIEVAL_DOCUMENT")
+
+    assert len(result) == 3
+    assert client.models.calls == [["a", "b", "c"]]
+
+
 # ---------------------------------------------------------------------------
 # Property 10: embed_articles returns one embedding per article
 # ---------------------------------------------------------------------------
@@ -49,7 +89,10 @@ def test_embed_articles_shape(articles):
 
     For any list of N articles, embed_articles must return an array of shape (N, D).
     """
-    with patch("tools.embeddings.embed_text", side_effect=fixed_embedding):
+    with (
+        patch("tools.embeddings._embed_batch", side_effect=lambda texts, task_type="RETRIEVAL_DOCUMENT": [fixed_embedding(text) for text in texts]),
+        patch("tools.db.save_embeddings"),
+    ):
         result = embed_articles(articles)
 
     n = len(articles)
