@@ -83,12 +83,14 @@ def save_articles(articles: list[ArticleSchema], engine: Engine | None = None) -
         conn.execute(stmt)
 
 
-def get_articles_last_7_days(engine: Engine | None = None) -> list[ArticleSchema]:
-    """Return all articles whose published_at is within the last 7 days."""
+def get_articles_by_lookback_days(engine: Engine | None = None, lookback_days: int = 7) -> list[ArticleSchema]:
+    """Return all articles whose published_at is within the requested lookback window."""
     if engine is None:
         engine = get_engine()
 
-    cutoff = datetime.now(tz=timezone.utc) - timedelta(days=7)
+    if lookback_days < 1:
+        raise ValueError("lookback_days must be >= 1")
+    cutoff = datetime.now(tz=timezone.utc) - timedelta(days=lookback_days)
 
     with engine.connect() as conn:
         result = conn.execute(
@@ -122,6 +124,11 @@ def get_articles_last_7_days(engine: Engine | None = None) -> list[ArticleSchema
                 pass
         articles.append(a)
     return articles
+
+
+def get_articles_last_7_days(engine: Engine | None = None) -> list[ArticleSchema]:
+    """Backward-compatible wrapper for older tests/callers."""
+    return get_articles_by_lookback_days(engine=engine, lookback_days=7)
 
 
 def save_embeddings(url_embedding_pairs: list[tuple[str, list[float]]], engine: Engine | None = None) -> None:

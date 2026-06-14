@@ -107,7 +107,7 @@ def test_api_success_response_is_valid_report_json(state: ReportState) -> None:
     """
     with patch("main.run_pipeline", return_value=state):
         client = TestClient(app, raise_server_exceptions=False)
-        response = client.post("/generate-report")
+        response = client.post("/generate-report", headers={"X-Internal-API-Key": "dev-ai-secret"})
 
     assert response.status_code == 202
 
@@ -131,7 +131,7 @@ def test_api_error_response_on_pipeline_failure() -> None:
     """When run_pipeline() raises, the API returns HTTP 500 with status='error'."""
     with patch("main.run_pipeline", side_effect=RuntimeError("pipeline exploded")):
         client = TestClient(app, raise_server_exceptions=False)
-        response = client.post("/generate-report")
+        response = client.post("/generate-report", headers={"X-Internal-API-Key": "dev-ai-secret"})
 
     assert response.status_code == 500
 

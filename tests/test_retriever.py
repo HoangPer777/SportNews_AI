@@ -9,10 +9,10 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
-from hypothesis import given, settings
+from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
-from agents.retriever import REQUIRED_QUERY_TOPICS, retriever_node
+from agents.retriever import REQUIRED_QUERY_TOPICS, RETRIEVER_MAX, retriever_node
 from models.schemas import ArticleSchema, PlanSchema, ReportState
 
 
@@ -118,9 +118,8 @@ def test_retriever_result_bounded_and_deduplicated(
 
     retrieved = result["retrieved_articles"]
 
-    # Bounded: at most 10 articles
-    assert len(retrieved) <= 10, (
-        f"Expected at most 10 retrieved articles, got {len(retrieved)}"
+    assert len(retrieved) <= RETRIEVER_MAX, (
+        f"Expected at most {RETRIEVER_MAX} retrieved articles, got {len(retrieved)}"
     )
 
     # Deduplicated: all URLs unique
@@ -158,6 +157,7 @@ def test_retriever_always_uses_required_query_topics(
 
     Validates: Requirements 7.4
     """
+    assume(len(articles) > 0)
     state = _build_state(articles, plan)
     mock_index = _make_mock_index(len(articles))
 

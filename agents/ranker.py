@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 
-from langchain_groq import ChatGroq
-
+from core.llm import get_safe_llm
 from models.schemas import ArticleSchema, ReportState
 
 logger = logging.getLogger(__name__)
@@ -45,9 +43,8 @@ def ranker_node(state: ReportState) -> ReportState:
         "No explanation. No markdown. Just the JSON array."
     )
 
-    model_name = os.getenv("GROQ_LLM_MODEL", "llama-3.1-8b-instant")
     try:
-        llm = ChatGroq(model=model_name, api_key=os.getenv("GROQ_API_KEY"))
+        llm = get_safe_llm("ranker")
         response = llm.invoke(prompt)
         raw = response.content.strip()
 

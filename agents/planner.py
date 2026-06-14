@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from datetime import datetime, timedelta
 
-from langchain_groq import ChatGroq
-
+from core.llm import get_safe_llm
 from models.schemas import PlanSchema, ReportState
 
 logger = logging.getLogger(__name__)
@@ -21,12 +19,15 @@ REQUIRED_SUB_GOALS = [
 ]
 
 
-def _get_week_date_range() -> str:
-    """Return the current week date range as a string."""
+def _get_period_date_range(period_type: str = "weekly", lookback_days: int = 7) -> str:
+    """Return the report period date range as a string."""
     today = datetime.utcnow().date()
-    week_start = today - timedelta(days=today.weekday())
-    week_end = week_start + timedelta(days=6)
-    return f"{week_start.isoformat()} to {week_end.isoformat()}"
+    if period_type == "weekly":
+        week_start = today - timedelta(days=today.weekday())
+        week_end = week_start + timedelta(days=6)
+        return f"{week_start.isoformat()} to {week_end.isoformat()}"
+    start = today - timedelta(days=max(lookback_days, 1) - 1)
+    return f"{start.isoformat()} to {today.isoformat()}"
 
 
 def _ensure_required_sub_goals(sub_goals: list[str]) -> list[str]:
@@ -44,11 +45,15 @@ def planner_node(state: ReportState) -> ReportState:
     articles = state.get("articles", [])
     sources = list({a.source for a in articles})
     article_count = len(articles)
-    date_range = _get_week_date_range()
+    metadata = state.get("metadata")
+    period_type = metadata.period_type if metadata else "weekly"
+    lookback_days = metadata.lookback_days if metadata else 7
+    date_range = _get_period_date_range(period_type, lookback_days)
+    report_label = "daily" if period_type == "daily" else "weekly"
 
     prompt = (
-        f"You are a sports news editor planning a weekly intelligence report.\n"
-        f"Current week: {date_range}\n"
+        f"You are a sports news editor planning a {report_label} intelligence report.\n"
+        f"Report period: {date_range}\n"
         f"Article corpus: {article_count} articles from sources: {', '.join(sources) if sources else 'none'}.\n\n"
         "Return ONLY a JSON object (no markdown, no extra text) with this exact structure:\n"
         "{\n"
@@ -64,10 +69,8 @@ def planner_node(state: ReportState) -> ReportState:
         "You may add additional sub-goals as appropriate."
     )
 
-    model_name = os.getenv("GROQ_LLM_MODEL", "grok-3-mini")
-
     try:
-        llm = ChatGroq(model=model_name, api_key=os.getenv("GROQ_API_KEY"))
+        llm = get_safe_llm("planner")
         response = llm.invoke(prompt)
         raw = response.content.strip()
 

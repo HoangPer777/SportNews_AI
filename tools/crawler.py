@@ -25,7 +25,10 @@ HEADERS = {
     "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
 }
 
-SEVEN_DAYS_AGO = lambda: datetime.now(tz=timezone.utc) - timedelta(days=7)  # noqa: E731
+def cutoff_for_lookback(lookback_days: int) -> datetime:
+    if lookback_days < 1:
+        raise ValueError("lookback_days must be >= 1")
+    return datetime.now(tz=timezone.utc) - timedelta(days=lookback_days)
 
 
 def _get(url: str, timeout: int = 20) -> Optional[requests.Response]:
@@ -89,10 +92,11 @@ def _crawl_source(
     article_url_pattern: str,
     source_name: str,
     base_url: str = "",
+    lookback_days: int = 7,
 ) -> list[ArticleSchema]:
     """Generic crawler for a Vietnamese news sports section."""
     articles: list[ArticleSchema] = []
-    cutoff = SEVEN_DAYS_AGO()
+    cutoff = cutoff_for_lookback(lookback_days)
 
     try:
         resp = _get(section_url)
@@ -162,40 +166,43 @@ def _crawl_source(
     return articles
 
 
-def crawl_vnexpress() -> list[ArticleSchema]:
+def crawl_vnexpress(lookback_days: int = 7) -> list[ArticleSchema]:
     # VnExpress article URLs: https://vnexpress.net/slug-1234567.html
     return _crawl_source(
         section_url="https://vnexpress.net/the-thao",
         article_url_pattern=r"https://vnexpress\.net/[a-z0-9][a-z0-9\-]+-\d{7}\.html$",
         source_name="VnExpress",
+        lookback_days=lookback_days,
     )
 
 
-def crawl_thanhnien() -> list[ArticleSchema]:
+def crawl_thanhnien(lookback_days: int = 7) -> list[ArticleSchema]:
     # Thanh Nien: article links are relative paths like /slug-185XXXXXXXXX.htm
     return _crawl_source(
         section_url="https://thanhnien.vn/the-thao/",
         article_url_pattern=r"-185\d{15}\.htm$",
         source_name="Thanh Nien",
         base_url="https://thanhnien.vn",
+        lookback_days=lookback_days,
     )
 
 
-def crawl_tuoitre() -> list[ArticleSchema]:
+def crawl_tuoitre(lookback_days: int = 7) -> list[ArticleSchema]:
     # Tuoi Tre: article links are relative paths like /slug-20260421XXXXXXXXXXXXXXXXX.htm (17 digits)
     return _crawl_source(
         section_url="https://tuoitre.vn/the-thao.htm",
         article_url_pattern=r"-202\d{14}\.htm$",
         source_name="Tuoi Tre",
         base_url="https://tuoitre.vn",
+        lookback_days=lookback_days,
     )
 
 
-def crawl_all_sources() -> list[ArticleSchema]:
+def crawl_all_sources(lookback_days: int = 7) -> list[ArticleSchema]:
     results: list[ArticleSchema] = []
     for crawler_fn in (crawl_vnexpress, crawl_thanhnien, crawl_tuoitre):
         try:
-            results.extend(crawler_fn())
+            results.extend(crawler_fn(lookback_days=lookback_days))
         except Exception as exc:
             logger.error("Unexpected error in %s: %s", crawler_fn.__name__, exc)
     return results
