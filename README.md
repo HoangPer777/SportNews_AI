@@ -8,7 +8,7 @@ AI service tao ban tin the thao daily/weekly cho he thong SportNews. Service cra
 - Tao report `daily` hoac `weekly` qua endpoint `POST /generate-report`.
 - Ho tro scheduler tu dong tao report hang tuan.
 - Luu bai crawl vao PostgreSQL cua AI service va dung FAISS cho semantic retrieval.
-- Dung OpenRouter model `openai/gpt-oss-120b:free`, co fallback model neu loi.
+- Dung danh sach OpenRouter free models on dinh hon, co Groq fallback neu OpenRouter loi.
 - Tra ve report co `executive_summary`, `trending_keywords`, `highlighted_news`, `metadata`.
 
 ## Chay bang Docker
@@ -25,10 +25,12 @@ Bien moi truong quan trong:
 INTERNAL_API_KEY=dev-ai-secret
 GOOGLE_API_KEY=your_google_api_key
 OPENROUTER_API_KEY=your_openrouter_api_key
-OPENROUTER_PRIMARY_MODEL=openai/gpt-oss-120b:free
-OPENROUTER_FALLBACK_MODEL=z-ai/glm-4.5-air:free
+# Optional: override default OpenRouter candidates
+OPENROUTER_MODEL_CANDIDATES=nvidia/nemotron-3-super-120b-a12b:free,nvidia/nemotron-3-ultra-550b-a55b:free,openai/gpt-oss-120b:free,google/gemma-4-31b-it:free,openai/gpt-oss-20b:free,nvidia/nemotron-3-nano-30b-a3b:free,openrouter/free
 DATABASE_URL=postgresql://sportsuser:sportspass@db:5432/sportsdb
 ```
+
+Mac dinh `planner`, `ranker`, `writer`, `reviewer` se dung danh sach Deep Research candidates trong `core/model_candidates.py`. Khong nen dung `z-ai/glm-4.5-air:free` vi OpenRouter da bao model nay khong con free.
 
 Khoi dong service:
 
@@ -97,3 +99,8 @@ docs/       tai lieu tich hop va huong dan test
 tests/      test suite
 ```
 
+## vào trang admin test tính năng tạo report
+http://localhost:5173/admin/reports
+
+username: admin
+password: adminadmin

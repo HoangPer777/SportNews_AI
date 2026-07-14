@@ -61,6 +61,16 @@ def _parse_date_meta(soup: BeautifulSoup) -> Optional[datetime]:
             except ValueError:
                 pass
 
+    # Tuoi Tre: "09/07/2026 16:13 GMT+7"
+    text = soup.get_text(" ", strip=True)
+    m = re.search(r"(\d{1,2}/\d{1,2}/\d{4})\s+(\d{1,2}:\d{2})\s+GMT\+7", text)
+    if m:
+        try:
+            dt = datetime.strptime(f"{m.group(1)} {m.group(2)}", "%d/%m/%Y %H:%M")
+            return dt.replace(tzinfo=timezone(timedelta(hours=7))).astimezone(timezone.utc)
+        except ValueError:
+            pass
+
     # fallback: <time datetime="...">
     time_tag = soup.find("time")
     if time_tag and time_tag.get("datetime"):
@@ -188,10 +198,11 @@ def crawl_thanhnien(lookback_days: int = 7) -> list[ArticleSchema]:
 
 
 def crawl_tuoitre(lookback_days: int = 7) -> list[ArticleSchema]:
-    # Tuoi Tre: article links are relative paths like /slug-20260421XXXXXXXXXXXXXXXXX.htm (17 digits)
+    # Tuoi Tre article IDs can use different numeric prefixes, for example:
+    # /slug-100260709160247808.htm
     return _crawl_source(
         section_url="https://tuoitre.vn/the-thao.htm",
-        article_url_pattern=r"-202\d{14}\.htm$",
+        article_url_pattern=r"-\d{15,21}\.htm$",
         source_name="Tuoi Tre",
         base_url="https://tuoitre.vn",
         lookback_days=lookback_days,

@@ -17,7 +17,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from models.schemas import ArticleSchema
-from tools.crawler import crawl_all_sources
+from tools.crawler import crawl_all_sources, crawl_tuoitre
 
 # ---------------------------------------------------------------------------
 # HTML template helpers
@@ -37,6 +37,17 @@ def _make_article_html(title: str, content: str, published_iso: str) -> str:
         f"</head><body>"
         f"<h1>{title}</h1>"
         f'<div class="fck_detail">{content}</div>'
+        f"</body></html>"
+    )
+
+
+def _make_tuoitre_article_html(title: str, content: str, published_text: str) -> str:
+    """Build a Tuoi Tre-like article page with its visible GMT+7 date format."""
+    return (
+        f"<html><body>"
+        f"<div>{published_text}</div>"
+        f"<h1>{title}</h1>"
+        f'<div class="detail-content">{content}</div>'
         f"</body></html>"
     )
 
@@ -98,6 +109,34 @@ def _side_effect_factory(mapping: dict[str, MagicMock]):
         resp.raise_for_status = MagicMock()
         return resp
     return _side_effect
+
+
+def test_crawl_tuoitre_accepts_current_article_url_and_date_format():
+    section_url = "https://tuoitre.vn/the-thao.htm"
+    article_url = "https://tuoitre.vn/fifa-tu-choi-xoa-the-cho-ngoi-sao-tuyen-phap-truoc-tu-ket-world-cup-2026-100260709160247808.htm"
+
+    section_resp = MagicMock()
+    section_resp.text = f'<html><body><a href="{article_url}">Article</a></body></html>'
+    section_resp.raise_for_status = MagicMock()
+
+    article_resp = MagicMock()
+    article_resp.text = _make_tuoitre_article_html(
+        title="FIFA tu choi xoa the cho ngoi sao tuyen Phap",
+        content="Tien dao Michael Olise khong duoc FIFA xoa the vang.",
+        published_text="09/07/2026 16:13 GMT+7",
+    )
+    article_resp.raise_for_status = MagicMock()
+
+    with patch(
+        "tools.crawler.requests.get",
+        side_effect=_side_effect_factory({section_url: section_resp, article_url: article_resp}),
+    ):
+        articles = crawl_tuoitre(lookback_days=7)
+
+    assert len(articles) == 1
+    assert articles[0].source == "Tuoi Tre"
+    assert articles[0].url == article_url
+    assert articles[0].published_at.isoformat() == "2026-07-09T09:13:00+00:00"
 
 
 # ---------------------------------------------------------------------------
